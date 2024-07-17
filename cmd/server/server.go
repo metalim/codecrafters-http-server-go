@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 )
 
@@ -20,6 +22,17 @@ func main() {
 		fmt.Println("Error accepting connection: ", err.Error())
 		os.Exit(1)
 	}
+	defer con.Close()
 
-	con.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+	reader := bufio.NewReader(con)
+	request, err := http.ReadRequest(reader)
+	if err != nil {
+		fmt.Println("Error reading request: ", err.Error())
+		os.Exit(1)
+	}
+	if request.Method == "GET" && request.URL.Path == "/" {
+		con.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+	} else {
+		con.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+	}
 }
