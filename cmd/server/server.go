@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -30,9 +31,14 @@ func main() {
 		fmt.Println("Error reading request: ", err.Error())
 		os.Exit(1)
 	}
-	if request.Method == "GET" && request.URL.Path == "/" {
+	switch {
+	case request.Method == "GET" && request.URL.Path == "/":
 		con.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-	} else {
+
+	case request.Method == "GET" && strings.HasPrefix(request.URL.Path, "/echo/"):
+		con.Write([]byte(fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(request.URL.Path)-6, request.URL.Path[6:])))
+
+	default:
 		con.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 	}
 }
