@@ -38,6 +38,9 @@ func main() {
 	case request.Method == "GET" && strings.HasPrefix(request.URL.Path, "/echo/"):
 		con.Write([]byte(fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(request.URL.Path)-6, request.URL.Path[6:])))
 
+	case request.Method == "GET" && request.URL.Path == "/user-agent":
+		con.Write([]byte(fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(request.UserAgent()), request.UserAgent())))
+
 	default:
 		con.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 	}
