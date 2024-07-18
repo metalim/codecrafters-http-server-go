@@ -76,6 +76,17 @@ func handleConnection(con net.Conn, dir string) {
 		io := bufio.NewReader(file)
 		io.WriteTo(con)
 		return
+
+	case request.Method == "POST" && strings.HasPrefix(request.URL.Path, "/files/"):
+		file, err := os.Create(dir + request.URL.Path[7:])
+		if err != nil {
+			break
+		}
+		defer file.Close()
+
+		io := bufio.NewReader(request.Body)
+		io.WriteTo(file)
+		res = "HTTP/1.1 201 Created\r\n\r\n"
 	}
 	con.Write([]byte(res))
 }
