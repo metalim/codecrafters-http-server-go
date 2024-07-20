@@ -91,9 +91,13 @@ func handleConnection(con net.Conn, dir string) {
 		header = "HTTP/1.1 201 Created\r\n"
 	}
 
-	if request.Header.Get("Accept-Encoding") == "gzip" {
-		header += "Content-Encoding: gzip\r\n"
+	for _, enc := range strings.Split(request.Header.Get("Accept-Encoding"), ",") {
+		if strings.HasPrefix(strings.TrimLeft(enc, " "), "gzip") {
+			header += "Content-Encoding: gzip\r\n"
+			break
+		}
 	}
+
 	_, _ = con.Write([]byte(header))
 	con.Write([]byte("\r\n"))
 	if body != nil {
