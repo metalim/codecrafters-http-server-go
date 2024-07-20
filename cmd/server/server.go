@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -48,34 +49,35 @@ func handleConnection(con net.Conn, dir string) {
 		return
 	}
 
-	res := "HTTP/1.1 404 Not Found\r\n\r\n"
+	header := "HTTP/1.1 404 Not Found\r\n"
+	var body io.Reader
 	switch {
 	case request.Method == "GET" && request.URL.Path == "/":
-		res = "HTTP/1.1 200 OK\r\n\r\n"
+		header = "HTTP/1.1 200 OK\r\n"
 
 	case request.Method == "GET" && strings.HasPrefix(request.URL.Path, "/echo/"):
-		res = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(request.URL.Path)-6, request.URL.Path[6:])
+		header = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n", len(request.URL.Path)-6)
+		body = strings.NewReader(request.URL.Path[6:])
 
 	case request.Method == "GET" && request.URL.Path == "/user-agent":
-		res = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(request.UserAgent()), request.UserAgent())
+		header = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n", len(request.UserAgent()))
+		body = strings.NewReader(request.UserAgent())
 
 	case request.Method == "GET" && strings.HasPrefix(request.URL.Path, "/files/"):
 		file, err := os.Open(dir + request.URL.Path[7:])
 		if err != nil {
 			break
 		}
-		defer file.Close()
 
 		fi, err := file.Stat()
 		if err != nil {
+			file.Close()
+			file = nil
 			break
 		}
 		size := fi.Size()
-		res = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n", size)
-		con.Write([]byte(res))
-		io := bufio.NewReader(file)
-		io.WriteTo(con)
-		return
+		header = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n", size)
+		body = file
 
 	case request.Method == "POST" && strings.HasPrefix(request.URL.Path, "/files/"):
 		file, err := os.Create(dir + request.URL.Path[7:])
@@ -86,7 +88,20 @@ func handleConnection(con net.Conn, dir string) {
 
 		io := bufio.NewReader(request.Body)
 		io.WriteTo(file)
-		res = "HTTP/1.1 201 Created\r\n\r\n"
+		header = "HTTP/1.1 201 Created\r\n"
 	}
-	con.Write([]byte(res))
+
+	if request.Header.Get("Accept-Encoding") == "gzip" {
+		header += "Content-Encoding: gzip\r\n"
+	}
+	_, _ = con.Write([]byte(header))
+	con.Write([]byte("\r\n"))
+	if body != nil {
+		reader := bufio.NewReader(body)
+		_, _ = reader.WriteTo(con)
+		if closer, ok := body.(io.Closer); ok {
+			closer.Close()
+		}
+		return
+	}
 }
