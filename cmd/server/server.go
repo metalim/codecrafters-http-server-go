@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"net"
@@ -49,18 +51,27 @@ func handleConnection(con net.Conn, dir string) {
 		return
 	}
 
-	header := "HTTP/1.1 404 Not Found\r\n"
+	header := Header{
+		StatusCode:    404,
+		StatusMessage: "Not Found",
+	}
+
 	var body io.Reader
 	switch {
 	case request.Method == "GET" && request.URL.Path == "/":
-		header = "HTTP/1.1 200 OK\r\n"
+		header.StatusCode = 200
+		header.StatusMessage = "OK"
 
 	case request.Method == "GET" && strings.HasPrefix(request.URL.Path, "/echo/"):
-		header = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n", len(request.URL.Path)-6)
+		header.StatusCode = 200
+		header.StatusMessage = "OK"
+		header.ContentLength = len(request.URL.Path) - 6
 		body = strings.NewReader(request.URL.Path[6:])
 
 	case request.Method == "GET" && request.URL.Path == "/user-agent":
-		header = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n", len(request.UserAgent()))
+		header.StatusCode = 200
+		header.StatusMessage = "OK"
+		header.ContentLength = len(request.UserAgent())
 		body = strings.NewReader(request.UserAgent())
 
 	case request.Method == "GET" && strings.HasPrefix(request.URL.Path, "/files/"):
@@ -76,7 +87,10 @@ func handleConnection(con net.Conn, dir string) {
 			break
 		}
 		size := fi.Size()
-		header = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n", size)
+		header.StatusCode = 200
+		header.StatusMessage = "OK"
+		header.ContentType = "application/octet-stream"
+		header.ContentLength = int(size)
 		body = file
 
 	case request.Method == "POST" && strings.HasPrefix(request.URL.Path, "/files/"):
@@ -88,17 +102,39 @@ func handleConnection(con net.Conn, dir string) {
 
 		io := bufio.NewReader(request.Body)
 		io.WriteTo(file)
-		header = "HTTP/1.1 201 Created\r\n"
+
+		header.StatusCode = 201
+		header.StatusMessage = "Created"
 	}
 
 	for _, enc := range strings.Split(request.Header.Get("Accept-Encoding"), ",") {
 		if strings.HasPrefix(strings.TrimLeft(enc, " "), "gzip") {
-			header += "Content-Encoding: gzip\r\n"
+			header.ContentEncoding = "gzip"
+			var buf bytes.Buffer
+			gzipper := gzip.NewWriter(&buf)
+			_, _ = io.Copy(gzipper, body)
+			gzipper.Close()
+			if closer, ok := body.(io.Closer); ok {
+				closer.Close()
+			}
+			body = &buf
+			header.ContentLength = buf.Len()
 			break
 		}
 	}
 
-	_, _ = con.Write([]byte(header))
+	_, _ = con.Write([]byte(fmt.Sprintf("HTTP/1.1 %d %s\r\n", header.StatusCode, header.StatusMessage)))
+	if header.ContentEncoding != "" {
+		_, _ = con.Write([]byte(fmt.Sprintf("Content-Encoding: %s\r\n", header.ContentEncoding)))
+	}
+	if header.ContentType != "" {
+		_, _ = con.Write([]byte(fmt.Sprintf("Content-Type: %s\r\n", header.ContentType)))
+	} else if header.ContentLength > 0 {
+		_, _ = con.Write([]byte("Content-Type: text/plain\r\n"))
+	}
+	if header.ContentLength > 0 {
+		_, _ = con.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n", header.ContentLength)))
+	}
 	con.Write([]byte("\r\n"))
 	if body != nil {
 		reader := bufio.NewReader(body)
@@ -108,4 +144,12 @@ func handleConnection(con net.Conn, dir string) {
 		}
 		return
 	}
+}
+
+type Header struct {
+	StatusCode      int
+	StatusMessage   string
+	ContentLength   int
+	ContentType     string
+	ContentEncoding string
 }
